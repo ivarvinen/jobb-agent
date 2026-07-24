@@ -11,7 +11,7 @@ GMAIL_PASSWORD = os.getenv('GMAIL_PASSWORD')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-pro')
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 IVARS_CV = """
 Senior UX/UI-designer och Art Director med över 10 års erfarenhet.

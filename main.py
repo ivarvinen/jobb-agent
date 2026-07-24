@@ -16,6 +16,7 @@ from google.genai import types
 GMAIL_USER = os.getenv('GMAIL_USER', '').replace('\xa0', '').replace(' ', '')
 GMAIL_PASSWORD = os.getenv('GMAIL_PASSWORD', '').replace('\xa0', '').replace(' ', '')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+SCRAPER_API_KEY = os.getenv('SCRAPER_API_KEY')
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -64,7 +65,6 @@ def get_jobs_from_email():
         mail.login(GMAIL_USER, GMAIL_PASSWORD)
         mail.select('inbox')
 
-        # Hämta 30 dagar bakåt och ta bort UNSEEN för att läsa ALLA mejl inom tidsramen
         date_since = (datetime.now() - timedelta(days=30)).strftime("%d-%b-%Y")
         status, messages = mail.search(None, 'SINCE', date_since)
         
@@ -133,7 +133,6 @@ def get_jobs_from_email():
         mail.close()
         mail.logout()
         
-        # Filtrera bort dubbletter baserat på jobbtitel
         unique_jobs = {}
         for job in jobs:
             title_key = job['headline'].strip().lower()
@@ -147,14 +146,21 @@ def get_jobs_from_email():
         return jobs
 
 def get_full_ad_text(url):
+    if not SCRAPER_API_KEY:
+        print("Scraper API-nyckel saknas. Hoppar över extrahering.")
+        return None
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'}
-        response = requests.get(url, headers=headers, timeout=5)
+        # Vi skickar vår URL via ScraperAPI för att lura Cloudflare
+        payload = {'api_key': SCRAPER_API_KEY, 'url': url}
+        response = requests.get('http://api.scraperapi.com', params=payload, timeout=30)
+        
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
+            # Extraherar all text men rensar bort onödig kod
             text = soup.get_text(separator=' ', strip=True)
-            return text[:4000]
-    except:
+            return text[:4000] # Skickar med max 4000 tecken för att spara token-utrymme
+    except Exception as e:
+        print(f"Ett fel uppstod vid skrapning med ScraperAPI: {e}")
         pass
     return None
 

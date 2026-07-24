@@ -49,73 +49,94 @@ def get_recent_jobs_platsbanken():
 def get_jobs_from_email():
     jobs = []
     try:
-        # Logga in på Gmail för att läsa mejl
+        # Logga in på Gmail
         mail = imaplib.IMAP4_SSL('imap.gmail.com')
         mail.login(GMAIL_USER, GMAIL_PASSWORD)
         mail.select('inbox')
 
-        # Leta efter OLÄSTA mejl som matchar sökord
-        status, messages = mail.search(None, '(UNSEEN)')
+        # Hämta dagens datum minus 7 dagar
+        date_since = (datetime.now() - timedelta(days=7)).strftime("%d-%b-%Y")
+        
+        # Sök efter olästa mejl som inkommit de senaste 7 dagarna
+        status, messages = mail.search(None, 'UNSEEN', 'SINCE', date_since)
         if status != 'OK' or not messages[0]:
             return jobs
 
         for num in messages[0].split():
-            status, data = mail.fetch(num, '(RFC822)')
-            if status != 'OK':
-                continue
-            
-            msg = email.message_from_bytes(data[0][1])
-            sender = msg.get("From", "").lower()
-            
-            # Vi kollar bara mejl från Indeed eller LinkedIn
-            if "indeed.com" not in sender and "linkedin.com" not in sender:
-                continue
+            try:
+                # Säkra upp ifall e-postens ID innehåller trasiga tecken
+                clean_num = num.decode('ascii', errors='ignore')
+                status, data = mail.fetch(clean_num, '(RFC822)')
+                if status != 'OK':
+                    continue
                 
-            # Extrahera HTML-innehållet
-            body = ""
-            if msg.is_multipart():
-                for part in msg.walk():
-                    if part.get_content_type() == "text/html":
-                        body = part.get_payload(decode=True).decode('utf-8', errors='ignore')
-                        break
-            else:
-                if msg.get_content_type() == "text/html":
-                    body = msg.get_payload(decode=True).decode('utf-8', errors='ignore')
-
-            if not body:
-                continue
-
-            # Läs HTML med BeautifulSoup för att hitta länkar
-            soup = BeautifulSoup(body, 'html.parser')
-            for a_tag in soup.find_all('a', href=True):
-                href = a_tag['href']
-                text = a_tag.get_text(strip=True)
-                
-                # Sålla ut rimliga länkar (jobbtitlar är sällan extremt korta eller jättelånga)
-                if text and 5 < len(text) < 100:
-                    # Hoppa över nonsenslänkar
-                    if any(word in text.lower() for word in ["unsubscribe", "sekretess", "privacy", "logga in", "jobb", "avregistrera"]):
-                        continue
+                raw_email = None
+                for response_part in data:
+                    if isinstance(response_part, tuple):
+                        raw_email = response_part[1]
+                        
+                if not raw_email:
+                    continue
                     
-                    if "indeed.com" in href or "linkedin.com" in href:
-                        jobs.append({
-                            'headline': text,
-                            'employer': {'name': 'Företag nämns i länken'},
-                            'workplace_address': {'municipality': 'Se annons/Remote'},
-                            'webpage_url': href,
-                            'description': {'text': 'Detta jobb hittades i ett e-postutskick. Bedöm relevansen utifrån jobbtiteln ovan.'},
-                            'source': 'E-post'
-                        })
+                msg = email.message_from_bytes(raw_email)
+                sender = str(msg.get("From", "")).lower()
+                
+                # Vi är bara intresserade av LinkedIn och Indeed
+                if "indeed.com" not in sender and "linkedin.com" not in sender:
+                    continue
+                    
+                # Extrahera HTML-innehållet
+                body = ""
+                if msg.is_multipart():
+                    for part in msg.walk():
+                        if part.get_content_type() == "text/html":
+                            body_bytes = part.get_payload(decode=True)
+                            if body_bytes:
+                                body = body_bytes.decode('utf-8', errors='ignore')
+                            break
+                else:
+                    if msg.get_content_type() == "text/html":
+                        body_bytes = msg.get_payload(decode=True)
+                        if body_bytes:
+                            body = body_bytes.decode('utf-8', errors='ignore')
+
+                if not body:
+                    continue
+
+                # Läs ut länkarna med BeautifulSoup
+                soup = BeautifulSoup(body, 'html.parser')
+                for a_tag in soup.find_all('a', href=True):
+                    href = a_tag['href']
+                    text = a_tag.get_text(strip=True)
+                    
+                    # Filtrera ut jobbtitlarna
+                    if text and 5 < len(text) < 100:
+                        if any(word in text.lower() for word in ["unsubscribe", "sekretess", "privacy", "logga in", "jobb", "avregistrera"]):
+                            continue
+                        
+                        if "indeed.com" in href or "linkedin.com" in href:
+                            jobs.append({
+                                'headline': text,
+                                'employer': {'name': 'Företag nämns i länken'},
+                                'workplace_address': {'municipality': 'Se annons/Remote'},
+                                'webpage_url': href,
+                                'description': {'text': 'Detta jobb hittades i ett e-postutskick. Bedöm relevansen utifrån jobbtiteln ovan.'},
+                                'source': 'E-post'
+                            })
+            except Exception as inner_e:
+                print(f"Hoppar över ett felaktigt mejl: {inner_e}")
+                continue # Koden fortsätter snällt till nästa mejl
+
         mail.close()
         mail.logout()
         
-        # Rensa eventuella dubbletter av länkar
+        # Rensa eventuella dubbletter av samma jobb-länk
         unique_jobs = {job['webpage_url']: job for job in jobs}.values()
         return list(unique_jobs)
         
     except Exception as e:
-        print(f"Kunde inte läsa mejl: {e}")
-        return []
+        print(f"Kunde inte ansluta till inkorgen: {e}")
+        return jobs
 
 def analyze_job_with_ai(job):
     ad_text = job.get('description', {}).get('text', '')

@@ -21,15 +21,26 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 
 IVARS_CV = """
 Senior UX/UI-designer och Art Director med över 10 års erfarenhet.
-Söker roller som: Senior UX Designer, Product Designer, UI Designer eller Art Director.
 Plats: Göteborg, Västra Götaland, eller 100% Remote. (Ignorera jobb som kräver on-site i andra städer).
 
-Nyckelkompetenser:
-- E2E UX, wireframes, prototyper (Figma), självserviceflöden.
-- Designsystem & skalbarhet, WCAG-tillgänglighet (expertis inom offentlig sektor).
-- Art Direction, varumärkesidentitet, konceptutveckling.
-- Erfarenhet av Enterprise UX, SaaS (Mercell), Offentlig Sektor (VGR, Västtrafik).
-- Agilt arbetssätt, Jira/Confluence, Stakeholder Management.
+# Vad jag söker i min nästa roll
+
+## 1. Målbild & Roll
+Jag letar efter en roll där jag får kombinera min tunga strategiska UX-grund med min passion för Art Direction, visuell identitet och varumärkesbyggande. Jag trivs bäst i hybridroller (exempelvis Lead Designer, Senior UX/UI Designer med AD-ansvar, eller Product Designer) där jag får ta ett helhetsgrepp om den digitala upplevelsen – från första koncept och varumärkesstrategi till pixelperfekt UI.
+
+## 2. Arbetsmiljö & Kultur
+Efter att ha navigerat i storskaliga, trögrörliga och politiskt styrda organisationer (främst offentlig sektor), söker jag mig nu till en mer snabbrörlig, kreativ och dynamisk miljö. Jag letar efter:
+* En byrå, ett produktbolag eller en inhouse-avdelning med korta beslutsvägar och ett genuint designfokus.
+* Ett arbetsklimat där design har ett strategiskt mandat och inte bara är en kravdriven funktionell leverans.
+* Ett team som präglas av tätt och prestige-löst samarbete mellan design, tech och affär, snarare än arbete i silos.
+
+## 3. Typ av projekt
+* Kommersiella och varumärkesbyggande digitala tjänster, e-handel eller innovativa produkter.
+* Projekt där det finns ett stort utrymme för "visuell verkshöjd" och kreativitet, i kontrast till ren systemförvaltning.
+* Uppdrag där jag får använda min erfarenhet för att omvandla komplexa affärsbehov till eleganta, konverterande och användarvänliga gränssnitt som stärker varumärket.
+
+## 4. Vad jag vill bidra med
+Jag vill vara den trygga bryggan mellan det kreativa (Brand/AD) och det strukturella (UX/Tech). Med min breda bakgrund kan jag kliva in och höja den visuella kvaliteten, samtidigt som jag vet exakt hur man bygger skalbara designsystem, navigerar tillgänglighetskrav och kommunicerar sömlöst med utvecklingsteam för att säkerställa att visionen faktiskt blir verklighet.
 """
 
 def get_recent_jobs_platsbanken():
@@ -53,8 +64,9 @@ def get_jobs_from_email():
         mail.login(GMAIL_USER, GMAIL_PASSWORD)
         mail.select('inbox')
 
-        date_since = (datetime.now() - timedelta(days=7)).strftime("%d-%b-%Y")
-        status, messages = mail.search(None, 'UNSEEN', 'SINCE', date_since)
+        # Hämta 30 dagar bakåt och ta bort UNSEEN för att läsa ALLA mejl inom tidsramen
+        date_since = (datetime.now() - timedelta(days=30)).strftime("%d-%b-%Y")
+        status, messages = mail.search(None, 'SINCE', date_since)
         
         if status != 'OK' or not messages[0]:
             return jobs
@@ -109,7 +121,7 @@ def get_jobs_from_email():
                         if "indeed.com" in href or "linkedin.com" in href:
                             jobs.append({
                                 'headline': text,
-                                'employer': {'name': 'Företag nämns i länken'},
+                                'employer': {'name': 'Okänt företag'},
                                 'workplace_address': {'municipality': 'Se annons/Remote'},
                                 'webpage_url': href,
                                 'description': {'text': 'Detta jobb hittades i ett e-postutskick. Bedöm relevansen utifrån jobbtiteln ovan.'},
@@ -121,7 +133,7 @@ def get_jobs_from_email():
         mail.close()
         mail.logout()
         
-        # NYTT: Filtrera bort dubbletter baserat på JOBBTITEL, inte länk
+        # Filtrera bort dubbletter baserat på jobbtitel
         unique_jobs = {}
         for job in jobs:
             title_key = job['headline'].strip().lower()
@@ -134,16 +146,14 @@ def get_jobs_from_email():
         print(f"Kunde inte ansluta till inkorgen: {e}")
         return jobs
 
-# NY FUNKTION: Försöker hämta den riktiga texten från länken
 def get_full_ad_text(url):
     try:
-        # Vi låtsas vara en vanlig Mac-dator som surfar via Chrome
         headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'}
         response = requests.get(url, headers=headers, timeout=5)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
             text = soup.get_text(separator=' ', strip=True)
-            return text[:4000] # Skicka tillbaka max 4000 tecken till AI:n
+            return text[:4000]
     except:
         pass
     return None
@@ -156,7 +166,7 @@ def analyze_job_with_ai(job):
     prompt = f"""
     Du är en karriärcoach för Ivar. Bedöm om följande jobb är relevant för honom.
     
-    IVARS PROFIL:
+    IVARS PROFIL & PREFERENSER:
     {IVARS_CV}
     
     JOBBANNONS:
@@ -165,13 +175,13 @@ def analyze_job_with_ai(job):
     Beskrivning: {ad_text}
     
     UPPGIFT:
-    1. Ge matchningen en poäng mellan 1-10 (där 10 är ett perfekt drömjobb).
+    1. Ge matchningen en poäng mellan 1-10 (där 10 är ett perfekt drömjobb). Väg in kultur, byrå/inhouse och utrymme för kreativitet.
     2. Motivera kort varför (max 2 meningar).
-    3. Ta hänsyn till orten! Om det kräver on-site i städer utanför Göteborg/Västra Götaland, ge poäng 1. (Om orten är "Se annons/Remote", dra inte av poäng förrän du är säker).
-    4. Om beskrivningen är fullständig, bedöm hans chans och kompetensmatchning. Om beskrivningen är kort, gå mestadels på titeln.
+    3. Ta hänsyn till orten! Om det kräver on-site i städer utanför Göteborg/Västra Götaland, ge poäng 1.
+    4. Leta efter arbetsgivarens/företagets namn i annonsen och spara det.
     
     Svara EXAKT med detta JSON-schema:
-    {{"score": siffra, "location": "staden du hittade eller Remote", "motivation": "din motivering"}}
+    {{"score": siffra, "company": "Företagsnamnet eller 'Okänt'", "location": "Staden eller Remote", "motivation": "din motivering"}}
     """
     
     try:
@@ -184,7 +194,7 @@ def analyze_job_with_ai(job):
         )
         return json.loads(response.text)
     except Exception as e:
-        return {"score": 0, "location": "Okänd", "motivation": "Kunde inte analyseras."}
+        return {"score": 0, "company": "Okänt", "location": "Okänd", "motivation": "Kunde inte analyseras."}
 
 def send_email(matched_jobs):
     if not matched_jobs:
@@ -196,9 +206,10 @@ def send_email(matched_jobs):
     msg['From'] = GMAIL_USER
     msg['To'] = GMAIL_USER
 
-    content = "God morgon Ivar!\n\nHär är dagens mest relevanta jobb, analyserade av din AI-agent:\n\n"
+    content = "God morgon Ivar!\n\nHär är de mest relevanta jobben, analyserade utifrån dina nya profilkrav:\n\n"
     for job in matched_jobs:
         content += f"💼 {job['title']} ({job.get('source', 'Platsbanken')})\n"
+        content += f"🏢 Företag: {job['company']}\n"
         content += f"📍 {job['location']}\n"
         content += f"⭐ Matchning: {job['score']}/10\n"
         content += f"🤖 AI:ns motivering: {job['motivation']}\n"
@@ -217,7 +228,7 @@ def main():
     print("Hämtar annonser från Platsbanken...")
     platsbanken_jobs = get_recent_jobs_platsbanken()
     
-    print("Hämtar annonser från inkorgen (Indeed/LinkedIn)...")
+    print("Hämtar annonser från inkorgen (Indeed/LinkedIn senaste 30 dagarna)...")
     email_jobs = get_jobs_from_email()
     
     all_jobs = platsbanken_jobs + email_jobs
@@ -228,7 +239,6 @@ def main():
     for index, job in enumerate(all_jobs):
         print(f"Analyserar jobb {index + 1} av {len(all_jobs)}...")
         
-        # Om det är en e-postlänk, försök "klicka" på den och hämta texten
         if job.get('source') == 'E-post':
             scraped_text = get_full_ad_text(job['webpage_url'])
             if scraped_text:
@@ -241,7 +251,7 @@ def main():
         if score >= 7:
             matched_jobs.append({
                 'title': job.get('headline', 'Okänd titel'),
-                'company': job.get('employer', {}).get('name', 'Okänt företag'),
+                'company': analysis.get('company', job.get('employer', {}).get('name', 'Okänt företag')),
                 'location': analysis.get('location', job.get('workplace_address', {}).get('municipality')),
                 'url': job.get('webpage_url', 'Ingen länk'),
                 'source': job.get('source', 'Platsbanken'),

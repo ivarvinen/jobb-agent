@@ -4,8 +4,8 @@ import json
 import smtplib
 from email.message import EmailMessage
 from datetime import datetime, timedelta
+import time  # <-- NYTT: Bibliotek för att kunna pausa koden
 
-# Nya imports för Googles uppdaterade SDK
 from google import genai
 from google.genai import types
 
@@ -13,7 +13,6 @@ GMAIL_USER = os.getenv('GMAIL_USER')
 GMAIL_PASSWORD = os.getenv('GMAIL_PASSWORD')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
-# Starta den nya klienten
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 IVARS_CV = """
@@ -69,7 +68,6 @@ def analyze_job_with_ai(job):
     """
     
     try:
-        # Uppdaterat anrop enligt Googles nya API-standard
         response = client.models.generate_content(
             model='gemini-2.0-flash', 
             contents=prompt,
@@ -115,9 +113,13 @@ def main():
     print(f"Hittade {len(jobs)} nya annonser. Analyserar med Gemini...")
     
     matched_jobs = []
-    for job in jobs:
+    
+    # Loopar igenom alla jobb, ett i taget
+    for index, job in enumerate(jobs):
+        print(f"Analyserar jobb {index + 1} av {len(jobs)}...")
         analysis = analyze_job_with_ai(job)
         score = analysis.get('score', 0)
+        
         if score >= 7:
             matched_jobs.append({
                 'title': job.get('headline', 'Okänd titel'),
@@ -127,6 +129,10 @@ def main():
                 'score': score,
                 'motivation': analysis.get('motivation', '')
             })
+            
+        # NYTT: Pausar i 5 sekunder innan nästa varv för att undvika "Rate Limit"
+        time.sleep(5)
+        
     send_email(matched_jobs)
 
 if __name__ == "__main__":

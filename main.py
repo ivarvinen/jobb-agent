@@ -49,22 +49,18 @@ def get_recent_jobs_platsbanken():
 def get_jobs_from_email():
     jobs = []
     try:
-        # Logga in på Gmail
         mail = imaplib.IMAP4_SSL('imap.gmail.com')
         mail.login(GMAIL_USER, GMAIL_PASSWORD)
         mail.select('inbox')
 
-        # Hämta dagens datum minus 7 dagar
         date_since = (datetime.now() - timedelta(days=7)).strftime("%d-%b-%Y")
-        
-        # Sök efter olästa mejl som inkommit de senaste 7 dagarna
         status, messages = mail.search(None, 'UNSEEN', 'SINCE', date_since)
+        
         if status != 'OK' or not messages[0]:
             return jobs
 
         for num in messages[0].split():
             try:
-                # Säkra upp ifall e-postens ID innehåller trasiga tecken
                 clean_num = num.decode('ascii', errors='ignore')
                 status, data = mail.fetch(clean_num, '(RFC822)')
                 if status != 'OK':
@@ -81,11 +77,9 @@ def get_jobs_from_email():
                 msg = email.message_from_bytes(raw_email)
                 sender = str(msg.get("From", "")).lower()
                 
-                # Vi är bara intresserade av LinkedIn och Indeed
                 if "indeed.com" not in sender and "linkedin.com" not in sender:
                     continue
                     
-                # Extrahera HTML-innehållet
                 body = ""
                 if msg.is_multipart():
                     for part in msg.walk():
@@ -103,13 +97,11 @@ def get_jobs_from_email():
                 if not body:
                     continue
 
-                # Läs ut länkarna med BeautifulSoup
                 soup = BeautifulSoup(body, 'html.parser')
                 for a_tag in soup.find_all('a', href=True):
                     href = a_tag['href']
                     text = a_tag.get_text(strip=True)
                     
-                    # Filtrera ut jobbtitlarna
                     if text and 5 < len(text) < 100:
                         if any(word in text.lower() for word in ["unsubscribe", "sekretess", "privacy", "logga in", "jobb", "avregistrera"]):
                             continue
@@ -124,19 +116,37 @@ def get_jobs_from_email():
                                 'source': 'E-post'
                             })
             except Exception as inner_e:
-                print(f"Hoppar över ett felaktigt mejl: {inner_e}")
-                continue # Koden fortsätter snällt till nästa mejl
+                continue
 
         mail.close()
         mail.logout()
         
-        # Rensa eventuella dubbletter av samma jobb-länk
-        unique_jobs = {job['webpage_url']: job for job in jobs}.values()
-        return list(unique_jobs)
+        # NYTT: Filtrera bort dubbletter baserat på JOBBTITEL, inte länk
+        unique_jobs = {}
+        for job in jobs:
+            title_key = job['headline'].strip().lower()
+            if title_key not in unique_jobs:
+                unique_jobs[title_key] = job
+                
+        return list(unique_jobs.values())
         
     except Exception as e:
         print(f"Kunde inte ansluta till inkorgen: {e}")
         return jobs
+
+# NY FUNKTION: Försöker hämta den riktiga texten från länken
+def get_full_ad_text(url):
+    try:
+        # Vi låtsas vara en vanlig Mac-dator som surfar via Chrome
+        headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'}
+        response = requests.get(url, headers=headers, timeout=5)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            text = soup.get_text(separator=' ', strip=True)
+            return text[:4000] # Skicka tillbaka max 4000 tecken till AI:n
+    except:
+        pass
+    return None
 
 def analyze_job_with_ai(job):
     ad_text = job.get('description', {}).get('text', '')
@@ -151,17 +161,17 @@ def analyze_job_with_ai(job):
     
     JOBBANNONS:
     Titel: {job_title}
-    Ort: {job_location}
+    Ort: {job_location} (Viktigt: Om orten är "Hämtad via länk", leta efter staden i annonstexten nedan!)
     Beskrivning: {ad_text}
     
     UPPGIFT:
     1. Ge matchningen en poäng mellan 1-10 (där 10 är ett perfekt drömjobb).
     2. Motivera kort varför (max 2 meningar).
-    3. Ta hänsyn till orten! Om det kräver on-site i städer utanför Göteborg/Västra Götaland, ge poäng 1. (Om orten är "Se annons", dra inte av poäng).
-    4. Observera: Vissa jobb saknar lång beskrivning eftersom de hämtats via mailutskick. Bedöm i så fall enbart utifrån titeln!
+    3. Ta hänsyn till orten! Om det kräver on-site i städer utanför Göteborg/Västra Götaland, ge poäng 1. (Om orten är "Se annons/Remote", dra inte av poäng förrän du är säker).
+    4. Om beskrivningen är fullständig, bedöm hans chans och kompetensmatchning. Om beskrivningen är kort, gå mestadels på titeln.
     
     Svara EXAKT med detta JSON-schema:
-    {{"score": siffra, "motivation": "din motivering"}}
+    {{"score": siffra, "location": "staden du hittade eller Remote", "motivation": "din motivering"}}
     """
     
     try:
@@ -174,8 +184,7 @@ def analyze_job_with_ai(job):
         )
         return json.loads(response.text)
     except Exception as e:
-        print(f"Fel vid AI-analys: {e}")
-        return {"score": 0, "motivation": "Kunde inte analyseras på grund av fel."}
+        return {"score": 0, "location": "Okänd", "motivation": "Kunde inte analyseras."}
 
 def send_email(matched_jobs):
     if not matched_jobs:
@@ -212,12 +221,20 @@ def main():
     email_jobs = get_jobs_from_email()
     
     all_jobs = platsbanken_jobs + email_jobs
-    print(f"Totalt hittades {len(all_jobs)} jobb att analysera. Startar AI...")
+    print(f"Totalt hittades {len(all_jobs)} unika jobb att analysera. Startar AI...")
     
     matched_jobs = []
     
     for index, job in enumerate(all_jobs):
         print(f"Analyserar jobb {index + 1} av {len(all_jobs)}...")
+        
+        # Om det är en e-postlänk, försök "klicka" på den och hämta texten
+        if job.get('source') == 'E-post':
+            scraped_text = get_full_ad_text(job['webpage_url'])
+            if scraped_text:
+                job['description']['text'] = scraped_text
+                job['workplace_address']['municipality'] = 'Hämtad via länk'
+
         analysis = analyze_job_with_ai(job)
         score = analysis.get('score', 0)
         
@@ -225,7 +242,7 @@ def main():
             matched_jobs.append({
                 'title': job.get('headline', 'Okänd titel'),
                 'company': job.get('employer', {}).get('name', 'Okänt företag'),
-                'location': job.get('workplace_address', {}).get('municipality', 'Okänd ort'),
+                'location': analysis.get('location', job.get('workplace_address', {}).get('municipality')),
                 'url': job.get('webpage_url', 'Ingen länk'),
                 'source': job.get('source', 'Platsbanken'),
                 'score': score,

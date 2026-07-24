@@ -4,14 +4,17 @@ import json
 import smtplib
 from email.message import EmailMessage
 from datetime import datetime, timedelta
-import google.generativeai as genai
+
+# Nya imports för Googles uppdaterade SDK
+from google import genai
+from google.genai import types
 
 GMAIL_USER = os.getenv('GMAIL_USER')
 GMAIL_PASSWORD = os.getenv('GMAIL_PASSWORD')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+# Starta den nya klienten
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 IVARS_CV = """
 Senior UX/UI-designer och Art Director med över 10 års erfarenhet.
@@ -66,9 +69,13 @@ def analyze_job_with_ai(job):
     """
     
     try:
-        response = model.generate_content(
-            prompt,
-            generation_config={"response_mime_type": "application/json"}
+        # Uppdaterat anrop enligt Googles nya API-standard
+        response = client.models.generate_content(
+            model='gemini-2.0-flash', 
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+            )
         )
         return json.loads(response.text)
     except Exception as e:
@@ -105,7 +112,7 @@ def send_email(matched_jobs):
 def main():
     print("Söker efter nya jobb...")
     jobs = get_recent_jobs()
-    print(f"Hittade {len(jobs)} nya annonser. Analyserar med Gemini Pro...")
+    print(f"Hittade {len(jobs)} nya annonser. Analyserar med Gemini...")
     
     matched_jobs = []
     for job in jobs:

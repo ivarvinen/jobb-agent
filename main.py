@@ -130,8 +130,8 @@ def main():
                 'motivation': analysis.get('motivation', '')
             })
             
-        # NYTT: Pausar i 5 sekunder innan nästa varv för att undvika "Rate Limit"
-        time.sleep(5)
+        # NYTT: Pausar i 10 sekunder innan nästa varv för att undvika "Rate Limit"
+        time.sleep(10)
         
     send_email(matched_jobs)
 

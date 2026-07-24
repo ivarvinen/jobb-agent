@@ -1,0 +1,29 @@
+name: Kör Jobb-Agent
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch: 
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checka ut kod
+        uses: actions/checkout@v3
+
+      - name: Sätt upp Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Installera tillägg
+        run: pip install -r requirements.txt
+
+      - name: Kör scriptet
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_PASSWORD: ${{ secrets.GMAIL_PASSWORD }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python main.py

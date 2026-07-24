@@ -13,8 +13,8 @@ from bs4 import BeautifulSoup
 from google import genai
 from google.genai import types
 
-GMAIL_USER = os.getenv('GMAIL_USER')
-GMAIL_PASSWORD = os.getenv('GMAIL_PASSWORD')
+GMAIL_USER = os.getenv('GMAIL_USER', '').replace('\xa0', '').replace(' ', '')
+GMAIL_PASSWORD = os.getenv('GMAIL_PASSWORD', '').replace('\xa0', '').replace(' ', '')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
 client = genai.Client(api_key=GEMINI_API_KEY)
